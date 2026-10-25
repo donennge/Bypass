@@ -1,0 +1,179 @@
+--[[
+    @XevrynXen SAE — Bypass Layer
+    Auto-fetched from GitHub by the main script.
+]]
+
+if _G.SAE_Bypass and _G.SAE_Bypass.loaded then
+    warn("[SAE Bypass] already loaded, skipping.")
+    return
+end
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local CoreGui           = game:GetService("CoreGui")
+local Workspace         = game:GetService("Workspace")
+
+local LP = Players.LocalPlayer
+
+local Bypass = {
+    loaded = true,
+    config = {
+        humanize       = true,
+        humanizeMin    = 0.12,
+        humanizeMax    = 0.45,
+        minRemoteGap   = 0.55,
+        remoteGap      = {
+            RemoteEvent   = 0.75,
+            StealEgg      = 0.7,
+            Steal         = 0.7,
+            StealEvent    = 0.7,
+            HatchEgg      = 0.6,
+            Hatch         = 0.6,
+            HatchEvent    = 0.6,
+            Fuse          = 2.0,
+            FusePets      = 2.0,
+            EquipBest     = 1.5,
+            EquipBestPets = 1.5,
+            SellEggs      = 3.0,
+            SellPets      = 3.0,
+        },
+        maxFlySpeed      = 45,
+        maxWalkSpeed     = 40,
+        maxJumpPower     = 55,
+        guiNames         = {"Chat","Backpack","Hotbar","Emotes","TopBar","Status"},
+        espHideName      = "_svc",
+        disableAntiCheat = true,
+        logKicks         = true,
+    }
+}
+_G.SAE_Bypass = Bypass
+
+local mt = getrawmetatable and getrawmetatable(game) or getmetatable(game)
+local oldNamecall = mt.__namecall
+local newcclosure = newcclosure or function(f) return f end
+
+setreadonly(mt, false)
+
+local remoteLast = {}
+
+local function getGap(remote)
+    return Bypass.config.remoteGap[remote.Name] or Bypass.config.minRemoteGap
+end
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+
+    if method == "Kick" and self == LP then
+        local reason = tostring((...))
+        warn("[SAE Bypass] KICKED: " .. reason)
+        if Bypass.config.logKicks and Bypass.onKick then
+            pcall(Bypass.onKick, reason)
+        end
+        return oldNamecall(self, ...)
+    end
+
+    if method == "FireServer" and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+        local key = self:GetFullName()
+        local now = tick()
+        local last = remoteLast[key]
+        local gap = getGap(self)
+
+        if last and (now - last) < gap then
+            return
+        end
+        remoteLast[key] = now
+
+        if Bypass.config.humanize then
+            local jitter = math.random() * (Bypass.config.humanizeMax - Bypass.config.humanizeMin) + Bypass.config.humanizeMin
+            task.wait(jitter)
+        end
+    end
+
+    return oldNamecall(self, ...)
+end)
+
+setreadonly(mt, true)
+
+local function cloakGUI()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, gui in ipairs(pg:GetChildren()) do
+        if gui:IsA("ScreenGui") and (gui.Name == "KB_XevrynXen" or gui.Name == "@XevrynXen") then
+            gui.Name = Bypass.config.guiNames[math.random(#Bypass.config.guiNames)]
+            gui.DisplayOrder = 1
+        end
+    end
+end
+
+local function cloakESP()
+    local container
+    for _, c in ipairs(CoreGui:GetChildren()) do
+        if c.Name == "KB_ESP" or c.Name == "@XevrynXen_ESP" then
+            container = c break
+        end
+    end
+    if container then
+        local hide = Instance.new("Folder")
+        hide.Name = Bypass.config.espHideName .. math.random(1000, 9999)
+        hide.Parent = Workspace
+        container.Parent = hide
+    end
+end
+
+local function disableAntiCheatScripts()
+    if not Bypass.config.disableAntiCheat then return 0 end
+    local ps = LP:FindFirstChild("PlayerScripts")
+    if not ps then return 0 end
+    local suspicious = {"anti","detect","guard","watch","check","security","protect","monitor","kick"}
+    local disabled = 0
+    for _, obj in ipairs(ps:GetDescendants()) do
+        if obj:IsA("LocalScript") then
+            local n = obj.Name:lower()
+            for _, kw in ipairs(suspicious) do
+                if n:find(kw) then
+                    pcall(function() obj.Disabled = true end)
+                    if getconnections then
+                        for _, c in ipairs(getconnections(obj.Changed)) do
+                            pcall(function() c:Disable() end)
+                        end
+                    end
+                    disabled = disabled + 1
+                    warn("[SAE Bypass] disabled anti-cheat: " .. obj:GetFullName())
+                    break
+                end
+            end
+        end
+    end
+    return disabled
+end
+
+RunService.Heartbeat:Connect(function()
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if hum.WalkSpeed > Bypass.config.maxWalkSpeed then hum.WalkSpeed = Bypass.config.maxWalkSpeed end
+        if hum.JumpPower > Bypass.config.maxJumpPower then hum.JumpPower = Bypass.config.maxJumpPower end
+    end
+    if hrp then
+        for _, v in ipairs(hrp:GetChildren()) do
+            if v:IsA("BodyVelocity") and v.Velocity.Magnitude > Bypass.config.maxFlySpeed then
+                v.Velocity = v.Velocity.Unit * Bypass.config.maxFlySpeed
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    task.wait(1.5)
+    cloakGUI()
+    cloakESP()
+    local n = disableAntiCheatScripts()
+    if _G.SAE_Notify then
+        _G.SAE_Notify("Bypass active  •  " .. tostring(n) .. " AC scripts disabled", Color3.fromRGB(72,220,145))
+    end
+    warn("[SAE Bypass] layers applied.")
+end)
+
+print("[SAE Bypass] loaded.")
